@@ -21,7 +21,8 @@ from six.moves import xrange    # pylint: disable=redefined-builtin
 
 import numpy
 
-from .. import h5s, h5t, h5r, h5d
+import h5py
+from .. import h5s, h5t, h5r, h5d, h5py
 from .base import HLObject, phil, with_phil
 from . import filters
 from . import selections as sel
@@ -29,6 +30,7 @@ from . import selections2 as sel2
 from .datatype import Datatype
 
 _LEGACY_GZIP_COMPRESSION_VALS = frozenset(range(10))
+MPI = h5py.h5.get_config().mpi
 
 def readtime_dtype(basetype, names):
     """ Make a NumPy dtype appropriate for reading """
@@ -152,11 +154,33 @@ class AstypeContext(object):
         self._dset._local.astype = None
 
 
+if MPI:
+    class CollectiveContext(object):
+
+        """ Manages collective I/O in MPI mode """
+
+        # We don't bother with _local as threads are forbidden in MPI mode
+
+        def __init__(self, dset):
+            self._dset = dset
+
+        def __enter__(self):
+            self._dset._dxpl.set_dxpl_mpio(h5py.h5fd.MPIO_COLLECTIVE)
+
+        def __exit__(self, *args):
+            self._dset._dxpl.set_dxpl_mpio(h5py.h5fd.MPIO_INDEPENDENT)
+
+
 class Dataset(HLObject):
 
     """
         Represents an HDF5 dataset
     """
+    if MPI:
+        @property
+        def collective(self):
+            """ Context manager for MPI collective reads & writes """
+            return CollectiveContext(self)
         
     def astype(self, dtype):
         """ Get a context manager allowing you to perform reads to a
@@ -281,6 +305,7 @@ class Dataset(HLObject):
         HLObject.__init__(self, bind)
 
         self._dcpl = self.id.get_create_plist()
+        self._dxpl = h5p.create(h5p.DATASET_XFER)
         self._filters = filters.get_filters(self._dcpl)
         self._local = local()
         self._local.astype = None
@@ -399,7 +424,7 @@ class Dataset(HLObject):
             out = numpy.empty(mshape, dtype=new_dtype)
             sid_out = h5s.create_simple(mshape)
             sid_out.select_all()
-            self.id.read(sid_out, sid, out, mtype)
+            self.id.read(sid_out, sid, out, mtype, dxpl=self._dxpl)
             return out
 
         # === Check for zero-sized datasets =====
@@ -416,7 +441,7 @@ class Dataset(HLObject):
             selection = sel2.select_read(fspace, args)
             arr = numpy.ndarray(selection.mshape, dtype=new_dtype)
             for mspace, fspace in selection:
-                self.id.read(mspace, fspace, arr, mtype)
+                self.id.read(mspace, fspace, arr, mtype, dxpl=self._dxpl)
             if len(names) == 1:
                 arr = arr[names[0]]
             if selection.mshape is None:
@@ -446,7 +471,7 @@ class Dataset(HLObject):
         # Perfom the actual read
         mspace = h5s.create_simple(mshape)
         fspace = selection.id
-        self.id.read(mspace, fspace, arr, mtype)
+        self.id.read(mspace, fspace, arr, mtype, dxpl=self._dxpl)
 
         # Patch up the output for NumPy
         if len(names) == 1:
@@ -581,7 +606,7 @@ class Dataset(HLObject):
             mshape_pad = mshape
         mspace = h5s.create_simple(mshape_pad, (h5s.UNLIMITED,)*len(mshape_pad))
         for fspace in selection.broadcast(mshape):
-            self.id.write(mspace, fspace, val, mtype)
+            self.id.write(mspace, fspace, val, mtype, dxpl=self._dxpl)
 
     def read_direct(self, dest, source_sel=None, dest_sel=None):
         """ Read data directly from HDF5 into an existing NumPy array.
@@ -604,7 +629,7 @@ class Dataset(HLObject):
                 dest_sel = sel.select(dest.shape, dest_sel, self.id)
 
             for mspace in dest_sel.broadcast(source_sel.mshape):
-                self.id.read(mspace, fspace, dest)
+                self.id.read(mspace, fspace, dest, dxpl=self._dxpl)
 
     def write_direct(self, source, source_sel=None, dest_sel=None):
         """ Write data directly to HDF5 from a NumPy array.
@@ -627,7 +652,7 @@ class Dataset(HLObject):
                 dest_sel = sel.select(self.shape, dest_sel, self.id)
 
             for fspace in dest_sel.broadcast(source_sel.mshape):
-                self.id.write(mspace, fspace, source)
+                self.id.write(mspace, fspace, source, dxpl=self._dxpl)
 
     @with_phil
     def __array__(self, dtype=None):

@@ -1299,3 +1299,49 @@ cdef class PropDAID(PropInstanceID):
 
         H5Pget_chunk_cache(self.id, &rdcc_nslots, &rdcc_nbytes, &rdcc_w0 )
         return (rdcc_nslots,rdcc_nbytes,rdcc_w0)
+
+
+cdef class PropDXID(PropInstanceID):
+
+    """ Data transfer property list """
+
+    def set_buffer(self, hsize_t size):
+        """ (LONG size)
+
+        Set the size of the type conversion and background buffers.
+        """
+        H5Pset_buffer(self.id, size, NULL, NULL)
+
+    def get_buffer(self):
+        """ () => LONG size
+
+        Get the size of the type conversion and background buffers.
+        """
+        cdef char *a
+        cdef char *b
+        return H5Pget_buffer(self.id, <void**>&a, <void**>&b)
+
+    IF MPI:
+        def set_dxpl_mpio(self, int xfer_mode):
+            """ (INT xfer_mode)
+
+            Set the transfer mode for MPI I/O. Must be one of:
+
+            - h5fd.MPIO_INDEPDENDENT (default)
+            - h5fd.MPIO_COLLECTIVE
+            """
+            H5Pset_dxpl_mpio(self.id, <H5FD_mpio_xfer_t>xfer_mode)
+
+        def get_dxpl_mpio(self):
+            """ () => INT xfer_mode
+
+            Get the current transfer mode for MPI I/O. Will be one of:
+
+            - h5fd.MPIO_INDEPDENDENT (default)
+            - h5fd.MPIO_COLLECTIVE
+            """
+            cdef H5FD_mpio_xfer_t mode
+            H5Pget_dxpl_mpio(self.id, &mode)
+            return <int>mode
+
+
