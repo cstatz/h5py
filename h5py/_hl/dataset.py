@@ -21,8 +21,7 @@ from six.moves import xrange    # pylint: disable=redefined-builtin
 
 import numpy
 
-import h5py
-from .. import h5s, h5t, h5r, h5d, h5py
+from .. import h5, h5s, h5t, h5r, h5d, h5p, h5fd
 from .base import HLObject, phil, with_phil
 from . import filters
 from . import selections as sel
@@ -30,7 +29,7 @@ from . import selections2 as sel2
 from .datatype import Datatype
 
 _LEGACY_GZIP_COMPRESSION_VALS = frozenset(range(10))
-MPI = h5py.h5.get_config().mpi
+MPI = h5.get_config().mpi
 
 def readtime_dtype(basetype, names):
     """ Make a NumPy dtype appropriate for reading """
@@ -165,10 +164,10 @@ if MPI:
             self._dset = dset
 
         def __enter__(self):
-            self._dset._dxpl.set_dxpl_mpio(h5py.h5fd.MPIO_COLLECTIVE)
+            self._dset._dxpl.set_dxpl_mpio(h5fd.MPIO_COLLECTIVE)
 
         def __exit__(self, *args):
-            self._dset._dxpl.set_dxpl_mpio(h5py.h5fd.MPIO_INDEPENDENT)
+            self._dset._dxpl.set_dxpl_mpio(h5fd.MPIO_INDEPENDENT)
 
 
 class Dataset(HLObject):
